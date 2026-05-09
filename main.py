@@ -78,6 +78,11 @@ def health():
     return {"ok": True}
 
 
+@app.get("/")
+async def root():
+    return {"message": "IntelliRead API is running!"}
+
+
 @app.post("/chat")
 async def chat(
     question: str = Form(...),
