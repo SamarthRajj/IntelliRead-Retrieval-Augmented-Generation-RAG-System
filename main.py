@@ -95,22 +95,84 @@ async def root():
       a { color: #2563eb; text-decoration: none; }
       a:hover { text-decoration: underline; }
       ul { margin: 10px 0 0 18px; }
+      label { display:block; margin-top: 12px; font-weight: 600; }
+      input[type="text"] { width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid #e5e7eb; border-radius: 10px; }
+      input[type="file"] { width: 100%; }
+      button { margin-top: 12px; padding: 10px 14px; border: 1px solid #111827; background: #111827; color: white; border-radius: 10px; cursor: pointer; }
+      button:disabled { opacity: 0.6; cursor: not-allowed; }
+      .muted { color: #6b7280; font-size: 14px; }
+      pre { white-space: pre-wrap; background: #f9fafb; border: 1px solid #e5e7eb; padding: 12px; border-radius: 12px; }
     </style>
   </head>
   <body>
     <div class="card">
-      <h2>IntelliRead API is running</h2>
-      <p>This deployment is an API (FastAPI) for PDF Q&amp;A.</p>
-      <ul>
-        <li><a href="/docs">API docs</a> (Swagger UI)</li>
-        <li><a href="/health">Health check</a></li>
-      </ul>
-      <p><strong>Chat endpoint</strong>: <code>POST /chat</code> (multipart/form-data)</p>
-      <ul>
-        <li><code>question</code>: text field</li>
-        <li><code>pdfs</code>: one or more PDF files</li>
-      </ul>
+      <h2>IntelliRead</h2>
+      <p class="muted">Upload PDFs, ask a question, get an answer.</p>
+
+      <label for="pdfs">PDF files</label>
+      <input id="pdfs" type="file" multiple accept="application/pdf" />
+
+      <label for="question">Question</label>
+      <input id="question" type="text" placeholder="Ask a question about your documents..." />
+
+      <button id="askBtn">Ask</button>
+
+      <div style="margin-top:16px">
+        <div class="muted" id="status"></div>
+        <pre id="answer" style="display:none"></pre>
+      </div>
+
+      <hr style="border:none;border-top:1px solid #e5e7eb;margin:18px 0" />
+      <div class="muted">
+        <a href="/docs">API docs</a> · <a href="/health">health</a>
+      </div>
     </div>
+    <script>
+      const pdfsEl = document.getElementById('pdfs');
+      const qEl = document.getElementById('question');
+      const btn = document.getElementById('askBtn');
+      const statusEl = document.getElementById('status');
+      const answerEl = document.getElementById('answer');
+
+      function setBusy(busy, msg) {
+        btn.disabled = busy;
+        statusEl.textContent = msg || '';
+      }
+
+      btn.addEventListener('click', async () => {
+        const files = pdfsEl.files;
+        const question = (qEl.value || '').trim();
+        answerEl.style.display = 'none';
+        answerEl.textContent = '';
+
+        if (!files || files.length === 0) {
+          setBusy(false, 'Please select at least one PDF.');
+          return;
+        }
+        if (!question) {
+          setBusy(false, 'Please enter a question.');
+          return;
+        }
+
+        const fd = new FormData();
+        fd.append('question', question);
+        for (const f of files) fd.append('pdfs', f, f.name);
+
+        try {
+          setBusy(true, 'Thinking...');
+          const res = await fetch('/chat', { method: 'POST', body: fd });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            throw new Error(data.detail || ('Request failed: ' + res.status));
+          }
+          answerEl.textContent = data.answer || '(empty answer)';
+          answerEl.style.display = 'block';
+          setBusy(false, '');
+        } catch (e) {
+          setBusy(false, String(e && e.message ? e.message : e));
+        }
+      });
+    </script>
   </body>
 </html>
 """.strip()
