@@ -2,7 +2,7 @@ import os
 from typing import List, Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 import numpy as np
 from PyPDF2 import PdfReader
 
@@ -80,7 +80,41 @@ def health():
 
 @app.get("/")
 async def root():
-    return {"message": "IntelliRead API is running!"}
+    return HTMLResponse(
+        """
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>IntelliRead</title>
+    <style>
+      body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; padding: 32px; line-height: 1.5; }
+      .card { max-width: 820px; margin: 0 auto; border: 1px solid #e5e7eb; border-radius: 12px; padding: 20px 22px; }
+      code { background: #f3f4f6; padding: 2px 6px; border-radius: 6px; }
+      a { color: #2563eb; text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      ul { margin: 10px 0 0 18px; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h2>IntelliRead API is running</h2>
+      <p>This deployment is an API (FastAPI) for PDF Q&amp;A.</p>
+      <ul>
+        <li><a href="/docs">API docs</a> (Swagger UI)</li>
+        <li><a href="/health">Health check</a></li>
+      </ul>
+      <p><strong>Chat endpoint</strong>: <code>POST /chat</code> (multipart/form-data)</p>
+      <ul>
+        <li><code>question</code>: text field</li>
+        <li><code>pdfs</code>: one or more PDF files</li>
+      </ul>
+    </div>
+  </body>
+</html>
+""".strip()
+    )
 
 
 @app.post("/chat")
