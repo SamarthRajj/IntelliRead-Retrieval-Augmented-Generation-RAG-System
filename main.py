@@ -3,14 +3,13 @@ from typing import List, Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
+import numpy as np
 from PyPDF2 import PdfReader
 
 from langchain.text_splitter import CharacterTextSplitter
 from langchain.embeddings import OpenAIEmbeddings
-from langchain.vectorstores import FAISS
 from langchain.chat_models import ChatOpenAI
-from langchain.chains import ConversationalRetrievalChain
-from langchain.memory import ConversationBufferMemory
+from langchain.schema import HumanMessage, SystemMessage
 
 app = FastAPI(title="MultiPDF Chat API")
 
@@ -46,19 +45,32 @@ def get_text_chunks(text: str) -> List[str]:
     return splitter.split_text(text)
 
 
-def get_vectorstore(text_chunks: List[str]) -> FAISS:
+def _embed_texts(texts: List[str]) -> np.ndarray:
     embeddings = OpenAIEmbeddings()
-    return FAISS.from_texts(texts=text_chunks, embedding=embeddings)
+    vectors = embeddings.embed_documents(texts)
+    return np.array(vectors, dtype=np.float32)
 
 
-def get_conversation_chain(vectorstore: FAISS) -> ConversationalRetrievalChain:
-    llm = ChatOpenAI()
-    memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-    return ConversationalRetrievalChain.from_llm(
-        llm=llm,
-        retriever=vectorstore.as_retriever(),
-        memory=memory,
-    )
+def _embed_query(query: str) -> np.ndarray:
+    embeddings = OpenAIEmbeddings()
+    v = embeddings.embed_query(query)
+    return np.array(v, dtype=np.float32)
+
+
+def _top_k_chunks(question: str, chunks: List[str], k: int = 4) -> List[str]:
+    if not chunks:
+        return []
+
+    doc_vecs = _embed_texts(chunks)  # (n, d)
+    q = _embed_query(question)  # (d,)
+
+    doc_norms = np.linalg.norm(doc_vecs, axis=1) + 1e-10
+    q_norm = float(np.linalg.norm(q) + 1e-10)
+    sims = (doc_vecs @ q) / (doc_norms * q_norm)
+
+    k = min(k, len(chunks))
+    idx = np.argsort(-sims)[:k]
+    return [chunks[int(i)] for i in idx]
 
 
 @app.get("/health")
@@ -84,18 +96,26 @@ async def chat(
         raise HTTPException(status_code=400, detail="No extractable text found in PDFs.")
 
     chunks = get_text_chunks(raw_text)
-    vectorstore = get_vectorstore(chunks)
-    chain = get_conversation_chain(vectorstore)
+    context_chunks = _top_k_chunks(question, chunks, k=4)
+    context = "\n\n---\n\n".join(context_chunks)
+
+    llm = ChatOpenAI()
+    messages = [
+        SystemMessage(
+            content=(
+                "You answer questions using ONLY the provided PDF context. "
+                "If the answer isn't in the context, say you don't know."
+            )
+        ),
+        HumanMessage(
+            content=f"PDF context:\n{context}\n\nQuestion: {question}",
+        ),
+    ]
 
     try:
-        result = chain({"question": question})
+        answer = llm(messages).content
     except Exception as e:
         raise HTTPException(status_code=500, detail="Failed to generate response.") from e
-
-    chat_history = result.get("chat_history", [])
-    answer = ""
-    if chat_history:
-        answer = getattr(chat_history[-1], "content", "") or ""
 
     return JSONResponse(
         {
